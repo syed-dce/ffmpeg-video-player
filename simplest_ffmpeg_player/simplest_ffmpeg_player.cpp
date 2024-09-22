@@ -23,17 +23,31 @@
 
 #include <stdio.h>
 
+#define __STDC_CONSTANT_MACROS
 
+#ifdef _WIN32
+//Windows
 extern "C"
 {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
-#include "libavutil/log.h"
-//SDL
-#include "sdl/SDL.h"
+#include "SDL2/SDL.h"
 };
-
+#else
+//Linux...
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
+#include <SDL2/SDL.h>
+#ifdef __cplusplus
+};
+#endif
+#endif
 
 //Output YUV420P data as a file 
 #define OUTPUT_YUV420P 0
@@ -94,8 +108,8 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 	
-	pFrame=avcodec_alloc_frame();
-	pFrameYUV=avcodec_alloc_frame();
+	pFrame=av_frame_alloc();
+	pFrameYUV=av_frame_alloc();
 	out_buffer=(uint8_t *)av_malloc(avpicture_get_size(PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height));
 	avpicture_fill((AVPicture *)pFrameYUV, out_buffer, PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height);
 	packet=(AVPacket *)av_malloc(sizeof(AVPacket));

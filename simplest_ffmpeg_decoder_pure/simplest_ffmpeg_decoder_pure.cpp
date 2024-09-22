@@ -21,17 +21,32 @@
 
 #include <stdio.h>
 
+#define __STDC_CONSTANT_MACROS
 
+#ifdef _WIN32
+//Windows
 extern "C"
 {
 #include "libavcodec/avcodec.h"
 #include "libswscale/swscale.h"
 };
+#else
+//Linux...
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
+#ifdef __cplusplus
+};
+#endif
+#endif
 
 
 //test different codec
 #define TEST_H264  0
-#define TEST_HEVC  1
+#define TEST_HEVC  0
 
 int main(int argc, char* argv[])
 {
@@ -57,9 +72,12 @@ int main(int argc, char* argv[])
 #if TEST_HEVC
 	enum AVCodecID codec_id=AV_CODEC_ID_HEVC;
 	char filepath_in[]="bigbuckbunny_480x272.hevc";
-#else
+#elif TEST_H264
 	AVCodecID codec_id=AV_CODEC_ID_H264;
 	char filepath_in[]="bigbuckbunny_480x272.h264";
+#else
+	AVCodecID codec_id=AV_CODEC_ID_MPEG2VIDEO;
+	char filepath_in[]="bigbuckbunny_480x272.m2v";
 #endif
 
 	char filepath_out[]="bigbuckbunny_480x272.yuv";
@@ -88,8 +106,8 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
-    if(pCodec->capabilities&CODEC_CAP_TRUNCATED)
-        pCodecCtx->flags|= CODEC_FLAG_TRUNCATED; /* we do not send complete frames */
+    //if(pCodec->capabilities&CODEC_CAP_TRUNCATED)
+    //    pCodecCtx->flags|= CODEC_FLAG_TRUNCATED; /* we do not send complete frames */
     
     if (avcodec_open2(pCodecCtx, pCodec, NULL) < 0) {
         printf("Could not open codec\n");
@@ -141,7 +159,7 @@ int main(int argc, char* argv[])
 				default: printf("Type: Other\t");break;
 			}
 			printf("Output Number:%4d\t",pCodecParserCtx->output_picture_number);
-			printf("Offset:%8ld\n",pCodecParserCtx->cur_offset);
+			printf("Offset:%lld\n",pCodecParserCtx->cur_offset);
 
 			ret = avcodec_decode_video2(pCodecCtx, pFrame, &got_picture, &packet);
 			if (ret < 0) {
@@ -156,7 +174,7 @@ int main(int argc, char* argv[])
 					img_convert_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, 
 						pCodecCtx->width, pCodecCtx->height, PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL); 
 					
-					pFrameYUV=avcodec_alloc_frame();
+					pFrameYUV=av_frame_alloc();
 					out_buffer=(uint8_t *)av_malloc(avpicture_get_size(PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height));
 					avpicture_fill((AVPicture *)pFrameYUV, out_buffer, PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height);
 					
