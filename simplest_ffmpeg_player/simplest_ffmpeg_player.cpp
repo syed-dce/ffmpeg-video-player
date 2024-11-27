@@ -32,6 +32,7 @@ extern "C"
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
+#include "libavutil/imgutils.h"
 #include "SDL2/SDL.h"
 };
 #else
@@ -44,6 +45,7 @@ extern "C"
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
 #include <SDL2/SDL.h>
+#include <libavutil/imgutils.h>
 #ifdef __cplusplus
 };
 #endif
@@ -59,7 +61,7 @@ int main(int argc, char* argv[])
 	AVCodecContext	*pCodecCtx;
 	AVCodec			*pCodec;
 	AVFrame	*pFrame,*pFrameYUV;
-	uint8_t *out_buffer;
+	unsigned char *out_buffer;
 	AVPacket *packet;
 	int y_size;
 	int ret, got_picture;
@@ -97,6 +99,7 @@ int main(int argc, char* argv[])
 		printf("Didn't find a video stream.\n");
 		return -1;
 	}
+
 	pCodecCtx=pFormatCtx->streams[videoindex]->codec;
 	pCodec=avcodec_find_decoder(pCodecCtx->codec_id);
 	if(pCodec==NULL){
@@ -110,15 +113,17 @@ int main(int argc, char* argv[])
 	
 	pFrame=av_frame_alloc();
 	pFrameYUV=av_frame_alloc();
-	out_buffer=(uint8_t *)av_malloc(avpicture_get_size(PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height));
-	avpicture_fill((AVPicture *)pFrameYUV, out_buffer, PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height);
+	out_buffer=(unsigned char *)av_malloc(av_image_get_buffer_size(AV_PIX_FMT_YUV420P,  pCodecCtx->width, pCodecCtx->height,1));
+	av_image_fill_arrays(pFrameYUV->data, pFrameYUV->linesize,out_buffer,
+		AV_PIX_FMT_YUV420P,pCodecCtx->width, pCodecCtx->height,1);
+	
 	packet=(AVPacket *)av_malloc(sizeof(AVPacket));
 	//Output Info-----------------------------
 	printf("--------------- File Information ----------------\n");
 	av_dump_format(pFormatCtx,0,filepath,0);
 	printf("-------------------------------------------------\n");
 	img_convert_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, 
-		pCodecCtx->width, pCodecCtx->height, PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL); 
+		pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL); 
 
 #if OUTPUT_YUV420P 
     fp_yuv=fopen("output.yuv","wb+");  
@@ -160,7 +165,7 @@ int main(int argc, char* argv[])
 				return -1;
 			}
 			if(got_picture){
-				sws_scale(img_convert_ctx, (const uint8_t* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, 
+				sws_scale(img_convert_ctx, (const unsigned char* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, 
 					pFrameYUV->data, pFrameYUV->linesize);
 				
 #if OUTPUT_YUV420P
@@ -197,7 +202,7 @@ int main(int argc, char* argv[])
 			break;
 		if (!got_picture)
 			break;
-		sws_scale(img_convert_ctx, (const uint8_t* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, 
+		sws_scale(img_convert_ctx, (const unsigned char* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, 
 			pFrameYUV->data, pFrameYUV->linesize);
 #if OUTPUT_YUV420P
 		int y_size=pCodecCtx->width*pCodecCtx->height;  

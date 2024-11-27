@@ -47,6 +47,7 @@ extern "C"
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
+#include "libavutil/imgutils.h"
 #include "SDL2/SDL.h"
 };
 #else
@@ -58,6 +59,7 @@ extern "C"
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
 #include <SDL2/SDL.h>
 #ifdef __cplusplus
 };
@@ -67,15 +69,30 @@ extern "C"
 //Refresh Event
 #define SFM_REFRESH_EVENT  (SDL_USEREVENT + 1)
 
+#define SFM_BREAK_EVENT  (SDL_USEREVENT + 2)
+
 int thread_exit=0;
+int thread_pause=0;
 
 int sfp_refresh_thread(void *opaque){
-	while (thread_exit==0) {
-		SDL_Event event;
-		event.type = SFM_REFRESH_EVENT;
-		SDL_PushEvent(&event);
+	thread_exit=0;
+	thread_pause=0;
+
+	while (!thread_exit) {
+		if(!thread_pause){
+			SDL_Event event;
+			event.type = SFM_REFRESH_EVENT;
+			SDL_PushEvent(&event);
+		}
 		SDL_Delay(40);
 	}
+	thread_exit=0;
+	thread_pause=0;
+	//Break
+	SDL_Event event;
+	event.type = SFM_BREAK_EVENT;
+	SDL_PushEvent(&event);
+
 	return 0;
 }
 
@@ -88,7 +105,7 @@ int main(int argc, char* argv[])
 	AVCodecContext	*pCodecCtx;
 	AVCodec			*pCodec;
 	AVFrame	*pFrame,*pFrameYUV;
-	uint8_t *out_buffer;
+	unsigned char *out_buffer;
 	AVPacket *packet;
 	int ret, got_picture;
 
@@ -103,7 +120,8 @@ int main(int argc, char* argv[])
 
 	struct SwsContext *img_convert_ctx;
 
-	char filepath[]="bigbuckbunny_480x272.h265";
+	//char filepath[]="bigbuckbunny_480x272.h265";
+	char filepath[]="Titanic.ts";
 
 	av_register_all();
 	avformat_network_init();
@@ -139,8 +157,10 @@ int main(int argc, char* argv[])
 	}
 	pFrame=av_frame_alloc();
 	pFrameYUV=av_frame_alloc();
-	out_buffer=(uint8_t *)av_malloc(avpicture_get_size(PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height));
-	avpicture_fill((AVPicture *)pFrameYUV, out_buffer, PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height);
+
+	out_buffer=(unsigned char *)av_malloc(av_image_get_buffer_size(AV_PIX_FMT_YUV420P,  pCodecCtx->width, pCodecCtx->height,1));
+	av_image_fill_arrays(pFrameYUV->data, pFrameYUV->linesize,out_buffer,
+		AV_PIX_FMT_YUV420P,pCodecCtx->width, pCodecCtx->height,1);
 
 	//Output Info-----------------------------
 	printf("---------------- File Information ---------------\n");
@@ -148,7 +168,7 @@ int main(int argc, char* argv[])
 	printf("-------------------------------------------------\n");
 	
 	img_convert_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, 
-		pCodecCtx->width, pCodecCtx->height, PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL); 
+		pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL); 
 	
 
 	if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {  
@@ -185,33 +205,36 @@ int main(int argc, char* argv[])
 		//Wait
 		SDL_WaitEvent(&event);
 		if(event.type==SFM_REFRESH_EVENT){
-			//------------------------------
-			if(av_read_frame(pFormatCtx, packet)>=0){
-				if(packet->stream_index==videoindex){
-					ret = avcodec_decode_video2(pCodecCtx, pFrame, &got_picture, packet);
-					if(ret < 0){
-						printf("Decode Error.\n");
-						return -1;
-					}
-					if(got_picture){
-						sws_scale(img_convert_ctx, (const uint8_t* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pFrameYUV->data, pFrameYUV->linesize);
-						//SDL---------------------------
-						SDL_UpdateTexture( sdlTexture, NULL, pFrameYUV->data[0], pFrameYUV->linesize[0] );  
-						SDL_RenderClear( sdlRenderer );  
-						//SDL_RenderCopy( sdlRenderer, sdlTexture, &sdlRect, &sdlRect );  
-						SDL_RenderCopy( sdlRenderer, sdlTexture, NULL, NULL);  
-						SDL_RenderPresent( sdlRenderer );  
-						//SDL End-----------------------
-					}
-				}
-				av_free_packet(packet);
-			}else{
-				//Exit Thread
-				thread_exit=1;
-				break;
+			while(1){
+				if(av_read_frame(pFormatCtx, packet)<0)
+					thread_exit=1;
+
+				if(packet->stream_index==videoindex)
+					break;
 			}
+			ret = avcodec_decode_video2(pCodecCtx, pFrame, &got_picture, packet);
+			if(ret < 0){
+				printf("Decode Error.\n");
+				return -1;
+			}
+			if(got_picture){
+				sws_scale(img_convert_ctx, (const unsigned char* const*)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pFrameYUV->data, pFrameYUV->linesize);
+				//SDL---------------------------
+				SDL_UpdateTexture( sdlTexture, NULL, pFrameYUV->data[0], pFrameYUV->linesize[0] );  
+				SDL_RenderClear( sdlRenderer );  
+				//SDL_RenderCopy( sdlRenderer, sdlTexture, &sdlRect, &sdlRect );  
+				SDL_RenderCopy( sdlRenderer, sdlTexture, NULL, NULL);  
+				SDL_RenderPresent( sdlRenderer );  
+				//SDL End-----------------------
+			}
+			av_free_packet(packet);
+		}else if(event.type==SDL_KEYDOWN){
+			//Pause
+			if(event.key.keysym.sym==SDLK_SPACE)
+				thread_pause=!thread_pause;
 		}else if(event.type==SDL_QUIT){
 			thread_exit=1;
+		}else if(event.type==SFM_BREAK_EVENT){
 			break;
 		}
 
